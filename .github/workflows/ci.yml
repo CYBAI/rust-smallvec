@@ -1,0 +1,57 @@
+name: Run CI
+on:
+  push:
+    branches: ["master"]
+  pull_request:
+    branches: ["**"]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+env:
+  RUST_BACKTRACE: 1
+  SHELL: /bin/bash
+
+jobs:
+  ci:
+    name: Run CI
+    runs-on: ubuntu-20.04
+
+    strategy:
+      matrix:
+        rust: [1.36.0, nightly, beta, stable]
+
+    steps:
+      - name: Install necessary packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y binutils-dev libunwind8-dev libcurl4-openssl-dev libelf-dev libdw-dev cmake gcc libiberty-dev
+      - uses: actions/checkout@v2
+        with:
+          fetch-depth: 2
+      - name: Setup Rust
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: ${{ matrix.rust }}
+          override: true
+      - name: Build
+        run: |
+          cargo build --verbose
+      - name: Tests
+        run: |
+          cargo test --verbose && cargo test --verbose --features serde
+      - name: Run commands for non-nightly
+        if: ${{ matrix.rust != 'nightly' }}
+        run: |
+          cargo check --verbose --no-default-features &&
+          cargo test --verbose --all-features &&
+          cargo bench --verbose bench &&
+          bash ./scripts/run_miri.sh
+      - name: Run commands for non-beta
+        if: ${{ matrix.rust != 'beta' }}
+        run: |
+          cargo test --verbose --features union
+      - name: Run Fuzzing
+        if: ${{ matrix.rust == 'beta' || matrix.rust == 'stable' }}
+        run: |
+          cd fuzz && ./travis-fuzz.sh
